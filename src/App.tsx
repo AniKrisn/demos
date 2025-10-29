@@ -1,14 +1,33 @@
-import { Tldraw, createShapeId, TLDefaultColorStyle, Editor } from 'tldraw'
+import { Tldraw, createShapeId, TLDefaultColorStyle, Editor, TLShapeId } from 'tldraw'
 import 'tldraw/tldraw.css'
 import { useState, useEffect, useRef } from 'react'
 
-const CIRCLE_ID = createShapeId('target-circle')
+const NUM_CURSORS = 8
+const GRID_ROWS = 10
+const GRID_COLS = 10
+const SHAPE_SIZE = 40
+const SHAPE_SPACING = 50
+
+// Rainbow colors for each cursor in the trail
+const RAINBOW_COLORS: TLDefaultColorStyle[] = [
+	'red',
+	'orange', 
+	'yellow',
+	'green',
+	'light-blue',
+	'blue',
+	'violet',
+	'light-violet'
+]
 
 export default function App() {
-	const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 })
+	const [cursorPositions, setCursorPositions] = useState(
+		Array(NUM_CURSORS).fill({ x: 0, y: 0 })
+	)
 	const mousePosition = useRef({ x: 0, y: 0 })
 	const animationFrameId = useRef<number>()
 	const editorRef = useRef<Editor | null>(null)
+	const shapeIdsRef = useRef<TLShapeId[]>([])
 
 	useEffect(() => {
 		const handleMouseMove = (e: MouseEvent) => {
@@ -16,52 +35,77 @@ export default function App() {
 		}
 
 		const animate = () => {
-			setCursorPosition((prev) => {
-				const dx = mousePosition.current.x - prev.x
-				const dy = mousePosition.current.y - prev.y
+			setCursorPositions((prevPositions) => {
+				const newPositions = [...prevPositions]
 				
-				// Lerp factor - smaller = slower chase (0.1 = 10% of the distance per frame)
-				const lerp = 0.04
-				
-				const newPos = {
-					x: prev.x + dx * lerp,
-					y: prev.y + dy * lerp,
-				}
-
-				// Check collision with circle
-				if (editorRef.current) {
-					const circle = editorRef.current.getShape(CIRCLE_ID)
-					if (circle && circle.type === 'geo') {
-						const circleBounds = editorRef.current.getShapePageBounds(circle)
-						if (circleBounds) {
-							// Convert screen coordinates to page coordinates
-							const pagePoint = editorRef.current.screenToPage({ x: newPos.x, y: newPos.y })
-							
-							// Check if cursor image is inside circle bounds
-							const isInside = 
-								pagePoint.x >= circleBounds.x &&
-								pagePoint.x <= circleBounds.x + circleBounds.w &&
-								pagePoint.y >= circleBounds.y &&
-								pagePoint.y <= circleBounds.y + circleBounds.h
-
-							// Change circle color based on collision
-							const currentColor = (circle.props as any).color as TLDefaultColorStyle
-							if (isInside && currentColor !== 'green') {
-								editorRef.current.updateShape({
-									...circle,
-									props: { ...(circle.props as any), color: 'green' }
-								})
-							} else if (!isInside && currentColor !== 'blue') {
-								editorRef.current.updateShape({
-									...circle,
-									props: { ...(circle.props as any), color: 'blue' }
-								})
-							}
-						}
+				// Each cursor follows the previous one (or the mouse for the first one)
+				for (let i = 0; i < NUM_CURSORS; i++) {
+					const target = i === 0 ? mousePosition.current : newPositions[i - 1]
+					const current = prevPositions[i]
+					
+					const dx = target.x - current.x
+					const dy = target.y - current.y
+					
+					// Each cursor has progressively more lag
+					const baseLerp = 0.05
+					const lerp = baseLerp * (1 - i * 0.1) // Each subsequent cursor is slower
+					
+					newPositions[i] = {
+						x: current.x + dx * lerp,
+						y: current.y + dy * lerp,
 					}
 				}
+
+				// Check collision with all shapes using all cursors
+				if (editorRef.current && shapeIdsRef.current.length > 0) {
+					// For each shape, check which cursor (if any) is inside it
+					shapeIdsRef.current.forEach(shapeId => {
+						const shape = editorRef.current!.getShape(shapeId)
+						if (shape && shape.type === 'geo') {
+							const shapeBounds = editorRef.current!.getShapePageBounds(shape)
+							if (shapeBounds) {
+								// Check all cursors (prioritize first cursor for color)
+								let cursorIndex = -1
+								for (let i = 0; i < NUM_CURSORS; i++) {
+									const pagePoint = editorRef.current!.screenToPage({ 
+										x: newPositions[i].x, 
+										y: newPositions[i].y 
+									})
+									
+									const isInside = 
+										pagePoint.x >= shapeBounds.x &&
+										pagePoint.x <= shapeBounds.x + shapeBounds.w &&
+										pagePoint.y >= shapeBounds.y &&
+										pagePoint.y <= shapeBounds.y + shapeBounds.h
+									
+									if (isInside) {
+										cursorIndex = i
+										break // Use the first (lead) cursor's color
+									}
+								}
+
+								// Change shape color based on which cursor touched it
+								const currentColor = (shape.props as any).color as TLDefaultColorStyle
+								if (cursorIndex >= 0) {
+									const newColor = RAINBOW_COLORS[cursorIndex]
+									if (currentColor !== newColor) {
+										editorRef.current!.updateShape({
+											...shape,
+											props: { ...(shape.props as any), color: newColor }
+										})
+									}
+								} else if (currentColor !== 'grey') {
+									editorRef.current!.updateShape({
+										...shape,
+										props: { ...(shape.props as any), color: 'grey' }
+									})
+								}
+							}
+						}
+					})
+				}
 				
-				return newPos
+				return newPositions
 			})
 			
 			animationFrameId.current = requestAnimationFrame(animate)
@@ -84,16 +128,33 @@ export default function App() {
 				onMount={(editor) => {
 					editorRef.current = editor
 					
-					// Create a circle shape in the center
-					editor.createShape({
-						id: CIRCLE_ID,
-						type: 'geo',
-						props: {
-							geo: 'ellipse',
-							color: 'blue',
-							fill: 'solid',
-						},
-					})
+					// Create a grid of shapes
+					const shapeIds: TLShapeId[] = []
+					const startX = 100
+					const startY = 100
+					
+					for (let row = 0; row < GRID_ROWS; row++) {
+						for (let col = 0; col < GRID_COLS; col++) {
+							const shapeId = createShapeId(`shape-${row}-${col}`)
+							shapeIds.push(shapeId)
+							
+							editor.createShape({
+								id: shapeId,
+								type: 'geo',
+								x: startX + col * SHAPE_SPACING,
+								y: startY + row * SHAPE_SPACING,
+								props: {
+									geo: 'ellipse',
+									w: SHAPE_SIZE,
+									h: SHAPE_SIZE,
+									color: 'grey',
+									fill: 'solid',
+								},
+							})
+						}
+					}
+					
+					shapeIdsRef.current = shapeIds
 
 					editor.zoomToFit()
 					editor.setCameraOptions({ isLocked: true })
@@ -107,20 +168,24 @@ export default function App() {
 					ZoomMenu: null,
 				}}
 			/>
-			<img
-				src="/assets/mac-cursor-6.png"
-				alt="cursor"
-				style={{
-					position: 'fixed',
-					left: cursorPosition.x,
-					top: cursorPosition.y,
-					width: '24px',
-					height: '24px',
-					pointerEvents: 'none',
-					zIndex: 9999,
-					transform: 'translate(-4px, -4px)', // Adjust offset so tip is at cursor position
-				}}
-			/>
+			{cursorPositions.map((pos, index) => (
+				<img
+					key={index}
+					src="/assets/mac-cursor-6.png"
+					alt={`cursor-${index}`}
+					style={{
+						position: 'fixed',
+						left: pos.x,
+						top: pos.y,
+						width: '28px',
+						height: '28px',
+						pointerEvents: 'none',
+						zIndex: 9999 - index, // Stack in order
+						transform: 'translate(-4px, -2px)', // Adjust offset so tip is at cursor position
+						opacity: 1 - index * 0.1, // Gradually fade the trailing cursors
+					}}
+				/>
+			))}
 		</div>
 	)
 }
