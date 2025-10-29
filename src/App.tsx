@@ -47,7 +47,7 @@ export default function App() {
 					const dy = target.y - current.y
 					
 					// Each cursor has progressively more lag
-					const baseLerp = 0.05
+					const baseLerp = 0.15
 					const lerp = baseLerp * (1 - i * 0.1) // Each subsequent cursor is slower
 					
 					newPositions[i] = {
@@ -177,12 +177,12 @@ export default function App() {
 						position: 'fixed',
 						left: pos.x,
 						top: pos.y,
-						width: '28px',
-						height: '28px',
+						width: '14px',
+						height: '20px',
 						pointerEvents: 'none',
 						zIndex: 9999 - index, // Stack in order
-						transform: 'translate(-4px, -2px)', // Adjust offset so tip is at cursor position
-						opacity: 1 - index * 0.1, // Gradually fade the trailing cursors
+						transform: 'translate(-2px, -2px)', // Adjust offset so tip is at cursor position
+						opacity: 1 - index * 0.11, // Gradually fade the trailing cursors
 					}}
 				/>
 			))}
