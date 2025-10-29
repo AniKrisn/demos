@@ -2,22 +2,24 @@ import { Tldraw, createShapeId, TLDefaultColorStyle, Editor, TLShapeId } from 't
 import 'tldraw/tldraw.css'
 import { useState, useEffect, useRef } from 'react'
 
-const NUM_CURSORS = 8
+const NUM_CURSORS = 9
 const GRID_ROWS = 10
 const GRID_COLS = 10
 const SHAPE_SIZE = 40
 const SHAPE_SPACING = 50
 
-// Rainbow colors for each cursor in the trail
+// Rainbow colors for each cursor in the trail, plus the real mouse
 const RAINBOW_COLORS: TLDefaultColorStyle[] = [
-	'red',
-	'orange', 
-	'yellow',
-	'green',
-	'light-blue',
-	'blue',
-	'violet',
-	'light-violet'
+	'light-red',     // Real mouse cursor
+	'red',           // Cursor 1
+	'orange',        // Cursor 2
+	'yellow',        // Cursor 3
+	'light-green',   // Cursor 4
+	'green',         // Cursor 5
+	'light-blue',    // Cursor 6
+	'blue',          // Cursor 7
+	'violet',        // Cursor 8
+	'light-violet'   // Cursor 9
 ]
 
 export default function App() {
@@ -47,7 +49,7 @@ export default function App() {
 					const dy = target.y - current.y
 					
 					// Each cursor has progressively more lag
-					const baseLerp = 0.1
+					const baseLerp = 0.075
 					const lerp = baseLerp * (1 - i * 0.1) // Each subsequent cursor is slower
 					
 					newPositions[i] = {
@@ -56,7 +58,7 @@ export default function App() {
 					}
 				}
 
-				// Check collision with all shapes using all cursors
+				// Check collision with all shapes using real mouse + all cursor images
 				if (editorRef.current && shapeIdsRef.current.length > 0) {
 					// For each shape, check which cursor (if any) is inside it
 					shapeIdsRef.current.forEach(shapeId => {
@@ -64,23 +66,41 @@ export default function App() {
 						if (shape && shape.type === 'geo') {
 							const shapeBounds = editorRef.current!.getShapePageBounds(shape)
 							if (shapeBounds) {
-								// Check all cursors (prioritize first cursor for color)
+								// Check real mouse first, then all cursor images
 								let cursorIndex = -1
-								for (let i = 0; i < NUM_CURSORS; i++) {
-									const pagePoint = editorRef.current!.screenToPage({ 
-										x: newPositions[i].x, 
-										y: newPositions[i].y 
-									})
-									
-									const isInside = 
-										pagePoint.x >= shapeBounds.x &&
-										pagePoint.x <= shapeBounds.x + shapeBounds.w &&
-										pagePoint.y >= shapeBounds.y &&
-										pagePoint.y <= shapeBounds.y + shapeBounds.h
-									
-									if (isInside) {
-										cursorIndex = i
-										break // Use the first (lead) cursor's color
+								
+								// Check real mouse position
+								const realMousePagePoint = editorRef.current!.screenToPage({ 
+									x: mousePosition.current.x, 
+									y: mousePosition.current.y 
+								})
+								
+								const realMouseInside = 
+									realMousePagePoint.x >= shapeBounds.x &&
+									realMousePagePoint.x <= shapeBounds.x + shapeBounds.w &&
+									realMousePagePoint.y >= shapeBounds.y &&
+									realMousePagePoint.y <= shapeBounds.y + shapeBounds.h
+								
+								if (realMouseInside) {
+									cursorIndex = 0 // Real mouse uses index 0
+								} else {
+									// Check all cursor images
+									for (let i = 0; i < NUM_CURSORS; i++) {
+										const pagePoint = editorRef.current!.screenToPage({ 
+											x: newPositions[i].x, 
+											y: newPositions[i].y 
+										})
+										
+										const isInside = 
+											pagePoint.x >= shapeBounds.x &&
+											pagePoint.x <= shapeBounds.x + shapeBounds.w &&
+											pagePoint.y >= shapeBounds.y &&
+											pagePoint.y <= shapeBounds.y + shapeBounds.h
+										
+										if (isInside) {
+											cursorIndex = i + 1 // Offset by 1 for cursor images
+											break // Use the first (lead) cursor's color
+										}
 									}
 								}
 
@@ -123,7 +143,7 @@ export default function App() {
 	}, [])
 
 	return (
-		<div style={{ position: 'fixed', inset: 0, cursor: 'none' }}>
+		<div style={{ position: 'fixed', inset: 0 }}>
 			<Tldraw 
 				onMount={(editor) => {
 					editorRef.current = editor
